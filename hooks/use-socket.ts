@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { socket } from "@/lib/socket"
 
-export const useSocket = () => {
+export const useSocket = (userId?: string) => {
     const [isConnected, setIsConnected] = useState(false)
     const [reconnectAttempt, setReconnectAttempt] = useState(0)
+    const registeredUserRef = useRef<string | null>(null)
 
     const manualReconnect = useCallback(() => {
         if (!socket.connected) {
@@ -21,9 +22,19 @@ export const useSocket = () => {
         }
 
         const onConnect = () => {
-            console.log("[SOCKET] Connected")
+            console.log("[SOCKET] ✅ Connected, socket ID:", socket.id)
             setIsConnected(true)
             setReconnectAttempt(0)
+            
+            // Registrar usuario para notificaciones directas
+            if (userId && registeredUserRef.current !== userId) {
+                console.log(`[SOCKET] 📝 Registering user ${userId} for direct notifications in room: user_${userId}`)
+                socket.emit("register_user", userId)
+                registeredUserRef.current = userId
+                console.log(`[SOCKET] ✅ User ${userId} registered successfully`)
+            } else if (!userId) {
+                console.warn("[SOCKET] ⚠️ No userId provided, cannot register for direct notifications")
+            }
         }
 
         const onDisconnect = (reason: string) => {
@@ -67,6 +78,14 @@ export const useSocket = () => {
 
         // Verificar estado inicial
         setIsConnected(socket.connected)
+        
+        // Si ya está conectado, registrar usuario inmediatamente
+        if (socket.connected && userId && registeredUserRef.current !== userId) {
+            console.log(`[SOCKET] 📝 Already connected, registering user ${userId} in room: user_${userId}`)
+            socket.emit("register_user", userId)
+            registeredUserRef.current = userId
+            console.log(`[SOCKET] ✅ User ${userId} registered successfully (already connected)`)
+        }
 
         return () => {
             socket.off("connect", onConnect)
@@ -77,7 +96,7 @@ export const useSocket = () => {
             socket.io.off("reconnect_error", onReconnectError)
             socket.io.off("reconnect_failed", onReconnectFailed)
         }
-    }, [])
+    }, [userId])
 
     return { socket, isConnected, reconnectAttempt, manualReconnect }
 }

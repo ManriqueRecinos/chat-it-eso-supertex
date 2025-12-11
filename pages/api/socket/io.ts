@@ -22,6 +22,12 @@ const ioHandler = (req: NextApiRequest, res: any) => {
         io.on("connection", (socket) => {
             console.log("Socket connected:", socket.id)
 
+            // Unirse a un room personal basado en el userId para recibir notificaciones directas
+            socket.on("register_user", (userId: string) => {
+                console.log(`[SERVER] Socket ${socket.id} registering user: ${userId}`)
+                socket.join(`user_${userId}`)
+            })
+
             socket.on("join_chat", (chatId) => {
                 console.log(`[SERVER] Socket ${socket.id} joining chat: ${chatId}`)
                 socket.join(chatId)
@@ -62,9 +68,48 @@ const ioHandler = (req: NextApiRequest, res: any) => {
             })
 
             socket.on("user_joined", (data) => {
-                console.log("User joined event received", data)
-                const { chatId } = data
+                console.log("[SERVER] User joined event received", data)
+                const { chatId, user } = data
+                
+                // Emitir a todos en el chat incluyendo al que agregó
+                console.log(`[SERVER] Emitting user_joined to room: ${chatId}`)
                 io.to(chatId).emit("user_joined", data)
+                
+                // Notificar al usuario agregado directamente para que actualice su lista de chats
+                if (user?.userId) {
+                    const userRoom = `user_${user.userId}`
+                    console.log(`[SERVER] Notifying user ${user.userId} via room ${userRoom} about being added to chat ${chatId}`)
+                    console.log(`[SERVER] Rooms in server:`, io.sockets.adapter.rooms)
+                    
+                    // Emitir al room del usuario
+                    const emitted = io.to(userRoom).emit("added_to_chat", { 
+                        chatId, 
+                        user,
+                        message: data.message 
+                    })
+                    console.log(`[SERVER] Event emitted to ${userRoom}:`, emitted)
+                }
+            })
+
+            socket.on("user_left", (data) => {
+                console.log("[SERVER] User left event received", data)
+                const { chatId } = data
+                // Emitir a todos en el chat
+                io.to(chatId).emit("user_left", data)
+            })
+
+            // Evento para actualizar mensaje (edición)
+            socket.on("message_updated", (data) => {
+                console.log("[SERVER] Message updated event received", data)
+                const { chatId, message } = data
+                io.to(chatId).emit("message_updated", message)
+            })
+
+            // Evento para eliminar mensaje
+            socket.on("message_deleted", (data) => {
+                console.log("[SERVER] Message deleted event received", data)
+                const { chatId, messageId } = data
+                io.to(chatId).emit("message_deleted", { chatId, messageId })
             })
 
             // Cuando un usuario lee mensajes

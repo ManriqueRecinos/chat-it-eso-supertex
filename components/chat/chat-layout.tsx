@@ -64,8 +64,8 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
     chatsRef.current = chats
   }, [chats])
 
-  // Socket connection
-  const { socket, isConnected, reconnectAttempt } = useSocket()
+  // Socket connection - pasar el userId para registro automático
+  const { socket, isConnected, reconnectAttempt } = useSocket(currentUser.id)
 
   // Unirse a todos los chats cuando cambian o cuando el socket se conecta
   useEffect(() => {
@@ -259,6 +259,16 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
         return [...prev, data.message]
       })
     }
+
+    // Re-sincronizar lista de chats/participantes desde la API para asegurar consistencia
+    fetch("/api/chats")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data) {
+          setChats(data)
+        }
+      })
+      .catch((err) => console.error("Failed to refresh chats after user_joined:", err))
   }, [])
 
   const handleMessageUpdated = useCallback((updatedMessage: MessageWithDetails) => {
@@ -321,6 +331,7 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
     // Socket event listeners
     const onConnect = () => {
       console.log("[CLIENT] Socket Connected:", socket.id)
+      
       // Join ALL chat rooms to receive notifications
       if (chatsRef.current.length > 0) {
         console.log("[CLIENT] Joining all chats:", chatsRef.current.map(c => c.id))
@@ -409,6 +420,31 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
       )
     })
 
+    // Cuando me agregan a un chat nuevo
+    socket.on("added_to_chat", (data: { chatId: string }) => {
+      console.log("[CLIENT] ✅ ADDED TO CHAT EVENT RECEIVED:", data)
+      console.log("[CLIENT] Current user ID:", currentUser.id)
+      console.log("[CLIENT] Chat ID:", data.chatId)
+      
+      // Refrescar la lista de chats para obtener el nuevo chat
+      console.log("[CLIENT] Fetching updated chat list...")
+      fetch("/api/chats")
+        .then((res) => {
+          console.log("[CLIENT] Chats API response status:", res.status)
+          return res.ok ? res.json() : null
+        })
+        .then((chatsData) => {
+          if (chatsData) {
+            console.log("[CLIENT] Updated chats received:", chatsData.length, "chats")
+            setChats(chatsData)
+            // Unirse al room del nuevo chat
+            console.log("[CLIENT] Joining new chat room:", data.chatId)
+            socket.emit("join_chat", data.chatId)
+          }
+        })
+        .catch((err) => console.error("[CLIENT] ❌ Failed to refresh chats after being added:", err))
+    })
+
     return () => {
       socket.off("connect", onConnect)
       socket.off("message")
@@ -419,8 +455,9 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
       socket.off("message_updated")
       socket.off("message_deleted")
       socket.off("messages_read")
+      socket.off("added_to_chat")
     }
-  }, [socket, handleNewMessage, handleUserJoined, handleMessageUpdated, handleMessageDeleted])
+  }, [socket, handleNewMessage, handleUserJoined, handleUserLeft, handleMessageUpdated, handleMessageDeleted])
 
   const refreshChats = useCallback(async () => {
     try {
@@ -601,7 +638,11 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
 
       // Emitir evento por socket para que todos actualicen el chat
       if (socket && data?.socketEvent) {
+        console.log("[CLIENT] 📤 Emitting user_joined event:", data.socketEvent)
+        console.log("[CLIENT] User being added:", data.socketEvent.user)
         socket.emit("user_joined", data.socketEvent)
+      } else {
+        console.warn("[CLIENT] ⚠️ Cannot emit user_joined:", { hasSocket: !!socket, hasEvent: !!data?.socketEvent })
       }
 
       return { success: true }

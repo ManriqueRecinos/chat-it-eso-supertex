@@ -197,6 +197,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const user = users[0] as { id: string; username: string; profilePhotoUrl: string | null }
 
+    // Cargar datos del admin para el mensaje de sistema
+    const adminRows = await sql`
+      SELECT id, username FROM users WHERE id = ${currentUserId}
+    `
+    const admin = adminRows[0] as { id: string; username: string }
+
     // Verificar si ya es participante
     const existing = await sql`
       SELECT * FROM chat_participants

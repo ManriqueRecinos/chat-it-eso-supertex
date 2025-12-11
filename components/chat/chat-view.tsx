@@ -196,23 +196,43 @@ export function ChatView({
     setProfilePreview({ url: safeUrl, username })
   }
 
-  // Scroll to bottom cuando cambia el chat
+  // Ref para saber si es la carga inicial del chat
+  const isInitialLoadRef = useRef(true)
+  const prevMessagesLengthRef = useRef(0)
+
+  // Scroll to bottom cuando cambia el chat - INSTANTÁNEO
   useEffect(() => {
-    // Timeout más largo para asegurar que los mensajes se hayan renderizado
+    isInitialLoadRef.current = true
+    prevMessagesLengthRef.current = 0
+    
+    // Scroll instantáneo al cambiar de chat
     const id = setTimeout(() => {
       if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView({ behavior: "instant", block: "end" })
       }
-    }, 100)
+      // Marcar que ya no es carga inicial después del primer scroll
+      setTimeout(() => {
+        isInitialLoadRef.current = false
+        prevMessagesLengthRef.current = messages.length
+      }, 50)
+    }, 50)
 
     return () => clearTimeout(id)
   }, [chat.id])
 
   // Scroll to bottom cuando llegan nuevos mensajes
   useEffect(() => {
-    if (messages.length > 0 && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" })
+    // Si es carga inicial o no hay mensajes, no hacer nada (lo maneja el otro useEffect)
+    if (isInitialLoadRef.current || messages.length === 0) return
+    
+    // Solo hacer scroll si hay mensajes nuevos (no cuando se cargan antiguos)
+    if (messages.length > prevMessagesLengthRef.current) {
+      if (messagesEndRef.current) {
+        // Scroll instantáneo para mensajes nuevos
+        messagesEndRef.current.scrollIntoView({ behavior: "instant", block: "end" })
+      }
     }
+    prevMessagesLengthRef.current = messages.length
   }, [messages.length])
 
   // Referencia al chat anterior para guardar borrador al cambiar
