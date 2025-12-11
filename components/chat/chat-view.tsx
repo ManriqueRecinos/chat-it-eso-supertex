@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -173,7 +174,7 @@ export function ChatView({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const stickerInputRef = useRef<HTMLInputElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
-  const messageInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const displayName = getChatDisplayName(chat, currentUser.id)
@@ -442,32 +443,44 @@ export function ChatView({
     setStickerName("")
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value
     setMessageInput(value)
+    onDraftChange?.(value)
+
+    // Auto-resize textarea
+    const textarea = e.target
+    textarea.style.height = 'auto'
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`
+
+    // Detectar menciones (@username)
+    const cursorPos = e.target.selectionStart || 0
+    const textBeforeCursor = value.slice(0, cursorPos)
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/)
     
-    // NO guardamos borrador aquí - solo se guarda al cambiar de chat
-
-    // Command Logic for ::
-    const commandMatch = value.match(/::(\w*)$/)
-    if (commandMatch) {
-      setCommandQuery(commandMatch[1].toLowerCase())
-    } else {
-      setCommandQuery(null)
-    }
-
-    // Mention logic for @
-    const mentionMatch = value.match(/@(\w*)$/)
     if (mentionMatch) {
-      setMentionQuery(mentionMatch[1].toLowerCase())
+      setMentionQuery(mentionMatch[1])
+      setCommandQuery(null)
     } else {
       setMentionQuery(null)
     }
 
-    if (!editingMessage) {
+    // Detectar comandos (/sticker)
+    const commandMatch = textBeforeCursor.match(/\/(\w*)$/)
+    if (commandMatch) {
+      setCommandQuery(commandMatch[1])
+      setMentionQuery(null)
+    } else if (!mentionMatch) {
+      setCommandQuery(null)
+    }
+
+    // Typing indicator
+    if (value.trim()) {
       onTyping(true)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
       typingTimeoutRef.current = setTimeout(() => onTyping(false), 2000)
+    } else {
+      onTyping(false)
     }
   }
 
@@ -1253,16 +1266,17 @@ export function ChatView({
             <Smile className={`h-5 w-5 sm:h-6 sm:w-6 ${showPicker ? 'text-primary' : 'text-muted-foreground'}`} />
           </Button>
 
-          <Input
+          <Textarea
             ref={messageInputRef}
             value={messageInput}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={editingMessage ? "Editar..." : "Mensaje..."}
-            className="flex-1 h-9 sm:h-10 text-sm"
+            className="flex-1 min-h-[36px] max-h-32 text-sm resize-none py-2 sm:min-h-[40px]"
             disabled={isUploading}
             autoFocus
+            rows={1}
           />
 
           <Button
