@@ -1361,7 +1361,7 @@ export function ChatView({
         setImageZoom(1)
         setImagePosition({ x: 0, y: 0 })
       }}>
-        <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] p-0 overflow-hidden bg-black/95 border-none" showCloseButton={false}>
+        <DialogContent className="max-w-[98vw] w-[98vw] max-h-[98vh] h-[98vh] p-0 overflow-hidden bg-black/95 border-none" showCloseButton={false}>
           <DialogTitle className="sr-only">Vista previa de imagen</DialogTitle>
           <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
             <Button
