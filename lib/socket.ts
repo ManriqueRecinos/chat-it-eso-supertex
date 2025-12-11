@@ -21,15 +21,14 @@ export const socket = ClientIO(getSocketUrl(), {
     autoConnect: false,
     // Configuración de reconexión automática
     reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    timeout: 20000,
-    // En Vercel, usar polling primero ya que no soporta WebSockets nativamente
-    // El cliente intentará upgrade a WebSocket si está disponible
-    transports: ["polling", "websocket"],
-    // Upgrade automático a WebSocket si está disponible
-    upgrade: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 10000,
+    timeout: 30000,
+    // En Vercel, SOLO usar polling ya que WebSocket no funciona en serverless
+    transports: ["polling"],
+    // NO intentar upgrade a WebSocket en Vercel
+    upgrade: false,
     // Configuración adicional para Vercel
-    rememberUpgrade: true,
+    forceNew: false,
 })

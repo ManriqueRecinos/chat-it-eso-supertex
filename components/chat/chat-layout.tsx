@@ -420,6 +420,13 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
       )
     })
 
+    // Cuando se actualiza un voto de encuesta
+    socket.on("poll_vote_updated", (data: { pollId: string; results: any[]; totalVotes: number }) => {
+      console.log("[CLIENT] Poll vote updated:", data)
+      // El componente InlinePoll se actualizará automáticamente cuando se re-renderice
+      // con los nuevos datos del mensaje. Aquí podríamos forzar un refresh si fuera necesario.
+    })
+
     // Cuando me agregan a un chat nuevo
     socket.on("added_to_chat", (data: { chatId: string }) => {
       console.log("[CLIENT] ✅ ADDED TO CHAT EVENT RECEIVED:", data)
@@ -455,6 +462,7 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
       socket.off("message_updated")
       socket.off("message_deleted")
       socket.off("messages_read")
+      socket.off("poll_vote_updated")
       socket.off("added_to_chat")
     }
   }, [socket, handleNewMessage, handleUserJoined, handleUserLeft, handleMessageUpdated, handleMessageDeleted])
@@ -778,6 +786,7 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
               }
             }}
             onlineUsers={onlineUsers}
+            socket={socket}
           />
         ) : (
           <EmptyChatView />

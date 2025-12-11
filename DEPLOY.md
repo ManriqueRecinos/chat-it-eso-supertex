@@ -49,27 +49,65 @@ NEXT_PUBLIC_SITE_URL=https://tu-app.vercel.app
 
 ## Notas importantes
 
-### WebSockets en Vercel
+### ⚠️ Limitaciones de WebSockets en Vercel
 
-⚠️ **IMPORTANTE:** Vercel NO soporta WebSockets nativamente en funciones serverless:
-- La app usará **HTTP Long Polling** automáticamente en Vercel
-- Esto funciona pero es menos eficiente que WebSockets
-- Para WebSockets reales y mejor rendimiento, usa Railway o Render
+**IMPORTANTE:** Vercel tiene limitaciones severas con WebSockets:
 
-**Configuración actual:**
-- ✅ Polling habilitado (funciona en Vercel)
-- ✅ Upgrade automático a WebSocket si está disponible
-- ✅ Reconexión automática
-- ⚠️ En Vercel, siempre usará polling (no WebSocket)
+**Problemas conocidos:**
+- ❌ Funciones serverless tienen timeout de 10 segundos (plan gratuito) o 60 segundos (plan Pro)
+- ❌ No mantienen conexiones persistentes entre peticiones
+- ❌ Errores 400 constantes en polling después de timeout
+- ❌ Reconexiones continuas que degradan la experiencia
 
-### Alternativa: Railway (Recomendado para WebSockets)
+**Solución implementada:**
+- ✅ Configurado para usar SOLO HTTP Long Polling
+- ✅ Timeouts aumentados al máximo permitido
+- ✅ Reconexión limitada a 5 intentos
+- ⚠️ **Funciona pero con limitaciones**: conexiones se caen cada ~60 segundos
 
-Railway soporta WebSockets sin limitaciones:
+**Recomendación:** Para producción seria, usa **Railway** o **Render** que soportan WebSockets sin limitaciones.
 
-1. Ve a [railway.app](https://railway.app)
-2. Crea un nuevo proyecto desde GitHub
-3. Agrega las mismas variables de entorno
-4. Railway desplegará automáticamente
+### 🚂 Railway (Recomendado para WebSockets)
+
+Railway soporta WebSockets nativos sin limitaciones de timeout:
+
+#### Pasos para desplegar en Railway:
+
+1. **Crear cuenta y proyecto**
+   - Ve a [railway.app](https://railway.app)
+   - Conecta tu cuenta de GitHub
+   - Click en "New Project" → "Deploy from GitHub repo"
+   - Selecciona tu repositorio
+
+2. **Configurar variables de entorno**
+   - En el dashboard del proyecto, ve a "Variables"
+   - Agrega todas las variables de `.env`:
+     ```
+     DATABASE_URL=tu_url_de_postgres
+     NEXT_PUBLIC_SITE_URL=https://tu-app.up.railway.app
+     ```
+
+3. **Configurar PostgreSQL (opcional)**
+   - Railway puede proveer una base de datos PostgreSQL
+   - Click en "New" → "Database" → "PostgreSQL"
+   - La variable `DATABASE_URL` se agregará automáticamente
+
+4. **Desplegar**
+   - Railway detectará automáticamente Next.js
+   - El despliegue comenzará automáticamente
+   - Obtendrás una URL como `https://tu-app.up.railway.app`
+
+5. **Verificar WebSockets**
+   - Abre la consola del navegador
+   - Deberías ver: `[SOCKET] ✅ Connected` sin reconexiones
+   - Las conexiones permanecerán estables
+
+#### Ventajas de Railway:
+- ✅ WebSockets nativos sin timeout
+- ✅ Conexiones persistentes
+- ✅ PostgreSQL incluido
+- ✅ Despliegue automático desde GitHub
+- ✅ Plan gratuito generoso ($5 de crédito mensual)
 
 ## Desarrollo local
 

@@ -110,6 +110,7 @@ interface ChatViewProps {
   draft?: string
   onDraftChange?: (text: string) => void
   onBack?: () => void
+  socket?: any
 }
 
 export function ChatView({
@@ -128,6 +129,7 @@ export function ChatView({
   draft = "",
   onDraftChange,
   onBack,
+  socket,
 }: ChatViewProps) {
   const [messageInput, setMessageInput] = useState(draft)
   // Unified Attachment State
@@ -979,6 +981,7 @@ export function ChatView({
                       toast.error("Error al fijar mensaje")
                     }
                   }}
+                  socket={socket}
                 />
               )
             ))}
@@ -1389,6 +1392,7 @@ function MessageBubble({
   onGoToMessage,
   onPinMessage,
   chatId,
+  socket,
 }: {
   message: MessageWithDetails
   isOwn: boolean
@@ -1405,6 +1409,7 @@ function MessageBubble({
   onGoToMessage?: (messageId: string) => void
   onPinMessage?: () => void
   chatId: string
+  socket?: any
 }) {
   const isSticker = message.mediaFiles?.some((m) => m.fileType === "image/sticker" || m.fileType === "video/sticker")
   const stickerMedia = message.mediaFiles?.find((m) => m.fileType === "image/sticker" || m.fileType === "video/sticker")
@@ -1693,6 +1698,7 @@ function MessageBubble({
                   pollData={pollData} 
                   messageId={message.id}
                   isOwn={isOwn}
+                  socket={socket}
                 />
               )}
 
@@ -2051,7 +2057,8 @@ function AudioPlayer({ url, isOwn }: { url: string; isOwn: boolean }) {
 function InlinePoll({ 
   pollData, 
   messageId,
-  isOwn 
+  isOwn,
+  socket
 }: { 
   pollData: { 
     pollId?: string
@@ -2062,6 +2069,7 @@ function InlinePoll({
   }
   messageId: string
   isOwn: boolean
+  socket?: any
 }) {
   const [options, setOptions] = useState(pollData.options || [])
   const [totalVotes, setTotalVotes] = useState(pollData.totalVotes || 0)
@@ -2139,6 +2147,12 @@ function InlinePoll({
           })))
         }
         setTotalVotes(data.totalVotes || 0)
+        
+        // Emitir evento por socket para actualizar en tiempo real
+        if (socket && data.socketEvent) {
+          console.log("[CLIENT] 📤 Emitting poll_vote_updated:", data.socketEvent)
+          socket.emit("poll_vote_updated", data.socketEvent)
+        }
       }
     } catch (error) {
       console.error("Error voting:", error)

@@ -107,6 +107,16 @@ export async function POST(request: NextRequest) {
       `
     }
 
+    // Obtener información del chat para el socket event
+    const pollInfo = await sql`
+      SELECT m."chatId" 
+      FROM polls p
+      JOIN messages m ON m.id = p.message_id
+      WHERE p.id = ${pollId}
+    `
+    
+    const chatId = pollInfo[0]?.chatId
+
     // Verificar si ya votó por esta opción
     const existingVote = await sql`
       SELECT id FROM poll_votes 
@@ -119,7 +129,39 @@ export async function POST(request: NextRequest) {
         DELETE FROM poll_votes 
         WHERE poll_id = ${pollId} AND option_id = ${optionId} AND user_id = ${userId}
       `
-      return NextResponse.json({ success: true, action: "removed" })
+      
+      // Obtener resultados actualizados después de quitar voto
+      const results = await sql`
+        SELECT 
+          po.id,
+          po.option_text,
+          COUNT(pv.id)::int as vote_count
+        FROM poll_options po
+        LEFT JOIN poll_votes pv ON pv.option_id = po.id
+        WHERE po.poll_id = ${pollId}
+        GROUP BY po.id, po.option_text, po.option_order
+        ORDER BY po.option_order
+      `
+
+      const totalVotes = await sql`
+        SELECT COUNT(DISTINCT user_id)::int as total
+        FROM poll_votes
+        WHERE poll_id = ${pollId}
+      `
+      
+      return NextResponse.json({ 
+        success: true, 
+        action: "removed",
+        results,
+        totalVotes: totalVotes[0]?.total || 0,
+        socketEvent: chatId ? {
+          type: "poll_vote_updated",
+          pollId,
+          chatId,
+          results,
+          totalVotes: totalVotes[0]?.total || 0
+        } : null
+      })
     }
 
     // Agregar voto
@@ -152,7 +194,14 @@ export async function POST(request: NextRequest) {
       success: true, 
       action: "added",
       results,
-      totalVotes: totalVotes[0]?.total || 0
+      totalVotes: totalVotes[0]?.total || 0,
+      socketEvent: chatId ? {
+        type: "poll_vote_updated",
+        pollId,
+        chatId,
+        results,
+        totalVotes: totalVotes[0]?.total || 0
+      } : null
     })
   } catch (error) {
     console.error("Error voting:", error)

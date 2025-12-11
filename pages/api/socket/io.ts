@@ -21,12 +21,16 @@ const ioHandler = (req: NextApiRequest, res: any) => {
                 methods: ["GET", "POST"],
                 credentials: true
             },
-            // Polling primero para compatibilidad con Vercel
-            transports: ["polling", "websocket"],
-            allowEIO3: true, // Compatibilidad con versiones antiguas
-            // Configuración para entornos serverless
+            // SOLO polling para Vercel (serverless no soporta WebSocket)
+            transports: ["polling"],
+            allowEIO3: true,
+            // Configuración para entornos serverless con timeouts largos
             pingTimeout: 60000,
             pingInterval: 25000,
+            // Aumentar timeout de conexión
+            connectTimeout: 45000,
+            // Permitir más tiempo para las peticiones
+            maxHttpBufferSize: 1e8,
         })
         res.socket.server.io = io
 
@@ -121,6 +125,14 @@ const ioHandler = (req: NextApiRequest, res: any) => {
                 console.log("[SERVER] Message deleted event received", data)
                 const { chatId, messageId } = data
                 io.to(chatId).emit("message_deleted", { chatId, messageId })
+            })
+
+            // Evento para actualizar votos de encuesta
+            socket.on("poll_vote_updated", (data) => {
+                console.log("[SERVER] Poll vote updated event received", data)
+                const { chatId, pollId, results, totalVotes } = data
+                // Emitir a todos en el chat para que actualicen la encuesta
+                io.to(chatId).emit("poll_vote_updated", { pollId, results, totalVotes })
             })
 
             // Cuando un usuario lee mensajes
