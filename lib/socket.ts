@@ -25,6 +25,11 @@ export const socket = ClientIO(getSocketUrl(), {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 20000,
-    // Transports para mejor compatibilidad
-    transports: ["websocket", "polling"],
+    // En Vercel, usar polling primero ya que no soporta WebSockets nativamente
+    // El cliente intentará upgrade a WebSocket si está disponible
+    transports: ["polling", "websocket"],
+    // Upgrade automático a WebSocket si está disponible
+    upgrade: true,
+    // Configuración adicional para Vercel
+    rememberUpgrade: true,
 })

@@ -51,12 +51,16 @@ NEXT_PUBLIC_SITE_URL=https://tu-app.vercel.app
 
 ### WebSockets en Vercel
 
-⚠️ **IMPORTANTE:** Vercel tiene limitaciones con WebSockets en el plan gratuito:
-- Los WebSockets funcionan pero con timeout de 60 segundos
-- Para producción seria, considera usar un servicio dedicado como:
-  - [Railway](https://railway.app)
-  - [Render](https://render.com)
-  - [Fly.io](https://fly.io)
+⚠️ **IMPORTANTE:** Vercel NO soporta WebSockets nativamente en funciones serverless:
+- La app usará **HTTP Long Polling** automáticamente en Vercel
+- Esto funciona pero es menos eficiente que WebSockets
+- Para WebSockets reales y mejor rendimiento, usa Railway o Render
+
+**Configuración actual:**
+- ✅ Polling habilitado (funciona en Vercel)
+- ✅ Upgrade automático a WebSocket si está disponible
+- ✅ Reconexión automática
+- ⚠️ En Vercel, siempre usará polling (no WebSocket)
 
 ### Alternativa: Railway (Recomendado para WebSockets)
 

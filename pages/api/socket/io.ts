@@ -21,8 +21,12 @@ const ioHandler = (req: NextApiRequest, res: any) => {
                 methods: ["GET", "POST"],
                 credentials: true
             },
-            transports: ["websocket", "polling"],
+            // Polling primero para compatibilidad con Vercel
+            transports: ["polling", "websocket"],
             allowEIO3: true, // Compatibilidad con versiones antiguas
+            // Configuración para entornos serverless
+            pingTimeout: 60000,
+            pingInterval: 25000,
         })
         res.socket.server.io = io
 
