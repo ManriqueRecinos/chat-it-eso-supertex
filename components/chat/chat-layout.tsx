@@ -5,6 +5,8 @@ import { ChatSidebar } from "./chat-sidebar"
 import { ChatView } from "./chat-view"
 import { EmptyChatView } from "./empty-chat-view"
 import { useSocket } from "@/hooks/use-socket"
+import { useInactivity } from "@/hooks/use-inactivity"
+import { InactivityWarning } from "@/components/inactivity-warning"
 import type { MessageWithDetails } from "@/lib/types"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
@@ -49,6 +51,12 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
   
   // Estado para móvil: mostrar sidebar o chat
   const [showMobileChat, setShowMobileChat] = useState(false)
+
+  // Hook de inactividad - cierra sesión después de 30 min sin actividad
+  const { showWarning, remainingTime, dismissWarning, logout } = useInactivity({
+    timeoutMs: 30 * 60 * 1000, // 30 minutos
+    warningMs: 2 * 60 * 1000,  // Advertencia 2 minutos antes
+  })
 
   const selectedChat = chats.find((c) => c.id === selectedChatId)
 
@@ -492,9 +500,14 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
 
     // Fetch messages for this chat
     try {
+      console.log(`[CLIENT] Fetching messages for chat: ${chatId}`)
       const response = await fetch(`/api/chats/${chatId}/messages`)
+      
+      console.log(`[CLIENT] Messages fetch status: ${response.status}`)
+      
       if (response.ok) {
         const data = await response.json()
+        console.log(`[CLIENT] Loaded ${data.length} messages for chat ${chatId}`)
         setMessages(data)
 
         // Marcar como leídos los mensajes recibidos (no propios)
@@ -545,9 +558,17 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
             })
           )
         }
+      } else {
+        // Manejar errores HTTP explícitamente
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error(`[CLIENT] ❌ Failed to load messages. Status: ${response.status}`, errorData)
+        toast.error(`Error al cargar mensajes: ${errorData.error || response.statusText}`)
+        setMessages([])
       }
     } catch (error) {
-      console.error("Failed to fetch messages:", error)
+      console.error("[CLIENT] ❌ Exception fetching messages:", error)
+      toast.error("Error de conexión al cargar mensajes")
+      setMessages([])
     }
   }
 
@@ -584,29 +605,6 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
       }
     } catch (error) {
       console.error("Failed to send message:", error)
-    }
-  }
-
-  const loadOlderMessages = async () => {
-    if (!selectedChatId || messages.length === 0) return
-
-    const oldest = messages[0]
-    const before = oldest.sentAt
-
-    try {
-      const response = await fetch(`/api/chats/${selectedChatId}/messages?before=${encodeURIComponent(before as any)}`)
-      if (!response.ok) return
-
-      const older = await response.json()
-      if (!Array.isArray(older) || older.length === 0) return
-
-      setMessages((prev) => {
-        const existingIds = new Set(prev.map((m) => m.id))
-        const filteredOlder = (older as any[]).filter((m) => !existingIds.has(m.id))
-        return [...filteredOlder, ...prev]
-      })
-    } catch (error) {
-      console.error("Failed to load older messages:", error)
     }
   }
 
@@ -701,8 +699,17 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--color-chat-bg)] overflow-hidden">
-      {/* Sidebar - oculto en móvil cuando hay chat seleccionado */}
+    <>
+      {/* Modal de advertencia de inactividad */}
+      <InactivityWarning
+        open={showWarning}
+        remainingTime={remainingTime}
+        onContinue={dismissWarning}
+        onLogout={logout}
+      />
+
+      <div className="flex h-dvh bg-[var(--color-chat-bg)] overflow-hidden">
+        {/* Sidebar - oculto en móvil cuando hay chat seleccionado */}
       <div className={`
         ${showMobileChat ? 'hidden' : 'flex'} 
         md:flex 
@@ -740,7 +747,6 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
             onSendMessage={sendChatMessage}
             onTyping={sendTypingIndicator}
             onAddParticipant={addParticipantToSelectedChat}
-            onLoadOlderMessages={loadOlderMessages}
             onRemoveParticipant={removeParticipantFromSelectedChat}
             onBack={handleBackToSidebar}
             draft={drafts.get(selectedChatId!) || ""}
@@ -792,6 +798,7 @@ export function ChatLayout({ currentUser, initialChats }: ChatLayoutProps) {
           <EmptyChatView />
         )}
       </div>
-    </div>
+      </div>
+    </>
   )
 }

@@ -131,6 +131,27 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Soporte para safe-area en móviles (evita que el contenido se oculte detrás de barras del navegador) */
+  html {
+    /* Usar dvh (dynamic viewport height) que se ajusta cuando aparece/desaparece la barra del navegador */
+    height: 100dvh;
+    height: -webkit-fill-available;
+  }
+  
+  body {
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
+  }
+}
+
+/* Safe area padding para el header en móviles */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* Chat scrollbar styling */

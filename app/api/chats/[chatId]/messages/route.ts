@@ -9,10 +9,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const cookieStore = await cookies()
     const userId = cookieStore.get("userId")?.value
     const { chatId } = await params
-    const { searchParams } = new URL(request.url)
-    const before = searchParams.get("before") // ISO string de fecha/hora
+    console.log(`[SERVER] GET /api/chats/${chatId}/messages - userId: ${userId}`)
 
     if (!userId) {
+      console.log(`[SERVER] ❌ No userId in cookie`)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -26,6 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const roleName = roles[0]?.role as string | null
     const isAdmin = roleName === "admin"
+    console.log(`[SERVER] User role: ${roleName}, isAdmin: ${isAdmin}`)
 
     // Para usuarios normales, verificar participación y usar joinedAt.
     // Para admin, permitimos leer todos los mensajes del chat desde el inicio.
@@ -33,22 +34,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     if (isAdmin) {
       joinedAt = new Date(0).toISOString() // Epoch: sin filtro real por fecha de ingreso
+      console.log(`[SERVER] Admin user - no joinedAt filter`)
     } else {
       const participant = await sql`
         SELECT * FROM chat_participants 
         WHERE "chatId" = ${chatId} AND "userId" = ${userId}
       `
 
+      console.log(`[SERVER] Participant check: found ${participant.length} records`)
+
       if (participant.length === 0) {
+        console.log(`[SERVER] ❌ User ${userId} is NOT a participant of chat ${chatId}`)
         return NextResponse.json({ error: "Not a participant" }, { status: 403 })
       }
 
       joinedAt = participant[0].joinedAt
+      console.log(`[SERVER] User joined at: ${joinedAt}`)
     }
 
-    // Get regular messages (filtered by joinedAt)
-    const messages = before
-      ? await sql`
+    // Get regular messages (filtered by joinedAt) - sin límite, cargar todos
+    const messages = await sql`
       SELECT 
         m.*,
         'message' as type,
@@ -105,76 +110,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       FROM messages m
       JOIN users u ON u.id = m."senderId"
       WHERE m."chatId" = ${chatId} 
-        AND m."sentAt" >= ${joinedAt}
-        AND m."sentAt" < ${before}
+        AND m."sentAt" >= ${joinedAt}::timestamptz
       ORDER BY m."sentAt" ASC
-      LIMIT 100
-    `
-      : await sql`
-      SELECT 
-        m.*,
-        'message' as type,
-        json_build_object(
-          'id', u.id,
-          'username', u.username,
-          'profilePhotoUrl', u."profilePhotoUrl"
-        ) as sender,
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'id', mf.id,
-                'fileUrl', mf."fileUrl",
-                'fileType', mf."fileType"
-              )
-            )
-            FROM media_files mf
-            WHERE mf."messageId" = m.id
-          ),
-          '[]'
-        ) as "mediaFiles",
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'userId', mr."userId",
-                'username', ru.username,
-                'readAt', mr."readAt"
-              )
-            )
-            FROM message_reads mr
-            JOIN users ru ON ru.id = mr."userId"
-            WHERE mr."messageId" = m.id
-          ),
-          '[]'
-        ) as "readBy",
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'id', r.id,
-                'emoji', r.emoji,
-                'userId', r."userId",
-                'username', ru2.username
-              )
-            )
-            FROM message_reactions r
-            JOIN users ru2 ON ru2.id = r."userId"
-            WHERE r."messageId" = m.id
-          ),
-          '[]'
-        ) as "reactions"
-      FROM messages m
-      JOIN users u ON u.id = m."senderId"
-      WHERE m."chatId" = ${chatId} 
-        AND m."sentAt" >= ${joinedAt}
-      ORDER BY m."sentAt" ASC
-      LIMIT 100
     `
 
-    // Get system messages (filtered by joinedAt)
-    const systemMessages = before
-      ? await sql`
+    // Get system messages (filtered by joinedAt) - sin límite, cargar todos
+    const systemMessages = await sql`
       SELECT 
         sm.id,
         sm."chatId",
@@ -188,33 +129,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       FROM system_messages sm
       LEFT JOIN users u ON u.id = sm."userId"
       WHERE sm."chatId" = ${chatId}
-        AND sm."createdAt" >= ${joinedAt}
-        AND sm."createdAt" < ${before}
-      ORDER BY sm."createdAt" ASC
-    `
-      : await sql`
-      SELECT 
-        sm.id,
-        sm."chatId",
-        sm.type as "eventType",
-        sm."createdAt" as "sentAt",
-        'system' as type,
-        json_build_object(
-          'id', u.id,
-          'username', u.username
-        ) as "systemUser"
-      FROM system_messages sm
-      LEFT JOIN users u ON u.id = sm."userId"
-      WHERE sm."chatId" = ${chatId}
-        AND sm."createdAt" >= ${joinedAt}
+        AND sm."createdAt" >= ${joinedAt}::timestamptz
       ORDER BY sm."createdAt" ASC
     `
 
-    // Combine and sort all messages
-    const allMessages = [...messages, ...systemMessages].sort((a, b) =>
-      new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime()
-    )
+    // Combine and sort all messages (oldest to newest)
+    const allMessages = [...messages, ...systemMessages]
+      .sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime())
 
+    console.log(`[SERVER] ✅ Returning ${allMessages.length} messages (${messages.length} regular + ${systemMessages.length} system)`)
     return NextResponse.json(allMessages)
   } catch (error) {
     console.error("Error fetching messages:", error)

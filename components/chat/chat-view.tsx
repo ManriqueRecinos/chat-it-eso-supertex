@@ -19,6 +19,7 @@ import { STICKERS } from "@/lib/stickers"
 import { ParticipantsModal } from "./participants-modal"
 import { SystemMessage } from "./system-message"
 import { LinkPreview, extractUrls } from "./link-preview"
+import { MediaEmbed, extractMediaUrls, isEmbeddableUrl } from "./media-embed"
 import { PinnedMessages } from "./pinned-messages"
 import { ChatSearch } from "./chat-search"
 import { PollCreator } from "./poll-creator"
@@ -104,7 +105,6 @@ interface ChatViewProps {
   onTyping: (isTyping: boolean) => void
   onAddParticipant: (username: string) => Promise<{ success: boolean; error?: string } | void>
   onRemoveParticipant: (userId: string) => Promise<{ success: boolean; error?: string } | void>
-  onLoadOlderMessages?: () => Promise<void> | void
   onEditMessage: (messageId: string, newContent: string) => void
   onDeleteMessage: (messageId: string) => void
   onlineUsers: Set<string>
@@ -123,7 +123,6 @@ export function ChatView({
   onTyping,
   onAddParticipant,
   onRemoveParticipant,
-  onLoadOlderMessages,
   onlineUsers,
   onEditMessage,
   onDeleteMessage,
@@ -142,7 +141,6 @@ export function ChatView({
   const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false)
   const [newParticipantUsername, setNewParticipantUsername] = useState("")
   const [isDragging, setIsDragging] = useState(false)
-  const [isLoadingOlder, setIsLoadingOlder] = useState(false)
 
   // Picker State
   const [showPicker, setShowPicker] = useState(false)
@@ -150,8 +148,10 @@ export function ChatView({
 
   // Command State (stickers ::)
   const [commandQuery, setCommandQuery] = useState<string | null>(null)
+  const [commandSelectedIndex, setCommandSelectedIndex] = useState(0)
   // Mentions State (@)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0)
 
   // Edit state
   const [editingMessage, setEditingMessage] = useState<MessageWithDetails | null>(null)
@@ -181,6 +181,8 @@ export function ChatView({
   const pickerRef = useRef<HTMLDivElement>(null)
   const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const commandListRef = useRef<HTMLDivElement>(null)
+  const mentionListRef = useRef<HTMLDivElement>(null)
 
   const displayName = getChatDisplayName(chat, currentUser.id)
   const otherParticipants = chat.participants.filter((p) => p.userId !== currentUser.id)
@@ -270,8 +272,30 @@ export function ChatView({
     setShowPicker(false)
     setCommandQuery(null)
     setMentionQuery(null)
+    setCommandSelectedIndex(0)
+    setMentionSelectedIndex(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.id]) // Solo cuando cambia el chat
+
+  // Scroll automático al elemento seleccionado en el autocompletado de stickers
+  useEffect(() => {
+    if (commandListRef.current && commandQuery !== null) {
+      const selectedElement = commandListRef.current.querySelector(`[data-index="${commandSelectedIndex}"]`)
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }, [commandSelectedIndex, commandQuery])
+
+  // Scroll automático al elemento seleccionado en el autocompletado de menciones
+  useEffect(() => {
+    if (mentionListRef.current && mentionQuery !== null) {
+      const selectedElement = mentionListRef.current.querySelector(`[data-index="${mentionSelectedIndex}"]`)
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }, [mentionSelectedIndex, mentionQuery])
 
   // Guardar borrador y emitir stop_typing cuando el componente se desmonta
   useEffect(() => {
@@ -465,15 +489,17 @@ export function ChatView({
     
     if (mentionMatch) {
       setMentionQuery(mentionMatch[1])
+      setMentionSelectedIndex(0) // Resetear índice al cambiar query
       setCommandQuery(null)
     } else {
       setMentionQuery(null)
     }
 
-    // Detectar comandos (/sticker)
-    const commandMatch = textBeforeCursor.match(/\/(\w*)$/)
+    // Detectar comandos de stickers (::nombre)
+    const commandMatch = textBeforeCursor.match(/::(\w*)$/)
     if (commandMatch) {
       setCommandQuery(commandMatch[1])
+      setCommandSelectedIndex(0) // Resetear índice al cambiar query
       setMentionQuery(null)
     } else if (!mentionMatch) {
       setCommandQuery(null)
@@ -550,18 +576,6 @@ export function ChatView({
     e.preventDefault(); setIsDragging(false)
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) validateAndAddFiles(files)
-  }
-
-  const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget
-    if (target.scrollTop < 80 && !isLoadingOlder && onLoadOlderMessages) {
-      setIsLoadingOlder(true)
-      try {
-        await onLoadOlderMessages()
-      } finally {
-        setIsLoadingOlder(false)
-      }
-    }
   }
 
   const removeAttachment = (id: string) => {
@@ -662,13 +676,58 @@ export function ChatView({
       setCommandQuery(null)
       setMentionQuery(null)
     }
-    // Space or Tab to autocomplete command
-    if ((e.key === " " || e.key === "Tab") && commandQuery !== null) {
+    
+    // Navegación y selección para stickers (::)
+    if (commandQuery !== null) {
       const allStickers = [...customStickers, ...STICKERS]
       const filteredStickers = allStickers.filter(s => s.name.toLowerCase().startsWith(commandQuery.toLowerCase()))
+      
       if (filteredStickers.length > 0) {
-        e.preventDefault()
-        handleCommandSelect(filteredStickers[0]) // Pick first match
+        // Flechas para navegar
+        if (e.key === "ArrowDown") {
+          e.preventDefault()
+          setCommandSelectedIndex(prev => Math.min(prev + 1, filteredStickers.length - 1))
+          return
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault()
+          setCommandSelectedIndex(prev => Math.max(prev - 1, 0))
+          return
+        }
+        // Tab o Enter para seleccionar
+        if (e.key === "Tab" || e.key === "Enter") {
+          e.preventDefault()
+          handleCommandSelect(filteredStickers[commandSelectedIndex])
+          return
+        }
+      }
+    }
+    
+    // Navegación y selección para menciones (@)
+    if (mentionQuery !== null) {
+      const query = mentionQuery.toLowerCase()
+      const candidates = chat.participants.filter((p) =>
+        p.username.toLowerCase().startsWith(query)
+      )
+      
+      if (candidates.length > 0) {
+        // Flechas para navegar
+        if (e.key === "ArrowDown") {
+          e.preventDefault()
+          setMentionSelectedIndex(prev => Math.min(prev + 1, candidates.length - 1))
+          return
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault()
+          setMentionSelectedIndex(prev => Math.max(prev - 1, 0))
+          return
+        }
+        // Tab o Enter para seleccionar
+        if (e.key === "Tab" || e.key === "Enter") {
+          e.preventDefault()
+          handleMentionSelect(candidates[mentionSelectedIndex].username)
+          return
+        }
       }
     }
   }
@@ -786,8 +845,8 @@ export function ChatView({
         </div>
       )}
 
-      {/* Header - sticky para que siempre sea visible */}
-      <div className="flex items-center justify-between border-b border-border bg-card px-2 sm:px-4 py-2 sm:py-3 sticky top-0 z-30 flex-shrink-0">
+      {/* Header - sticky para que siempre sea visible, con safe-area para móviles */}
+      <div className="flex items-center justify-between border-b border-border bg-card px-2 sm:px-4 py-2 sm:py-3 sticky top-0 z-30 flex-shrink-0 safe-area-top">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {/* Botón volver - solo visible en móvil */}
           {onBack && (
@@ -950,7 +1009,7 @@ export function ChatView({
       </Dialog>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 chat-scrollbar" onScroll={handleScroll}>
+      <div className="flex-1 overflow-y-auto p-4 chat-scrollbar">
         {Object.entries(groupedMessages).map(([date, msgs]) => (
           <div key={date}>
             <div className="mb-4 flex justify-center">
@@ -1031,41 +1090,70 @@ export function ChatView({
         </div>
       )}
 
-      {/* Command Autocomplete Popover */}
+      {/* Command Autocomplete Popover (::sticker) */}
       {commandQuery !== null && (() => {
         const allStickers = [...customStickers, ...STICKERS]
         const filteredStickers = allStickers.filter(s => s.name.toLowerCase().startsWith(commandQuery.toLowerCase()))
         return filteredStickers.length > 0 && (
-          <div className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[150px] max-h-[300px] overflow-y-auto">
-            {filteredStickers.map(s => (
-              <button key={s.id} onClick={() => handleCommandSelect(s)} className="flex items-center gap-2 w-full p-2 hover:bg-muted text-sm rounded text-left">
-                {(s as any).type === "video" ? (
-                  <video src={s.url} className="w-6 h-6 object-contain" autoPlay loop muted playsInline />
-                ) : (
-                  <img src={s.url} className="w-6 h-6 object-contain" />
+          <div ref={commandListRef} className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[200px] max-h-[300px] overflow-y-auto">
+            <div className="px-2 py-1 text-[10px] text-muted-foreground border-b mb-1">
+              Escribe <kbd className="px-1 bg-muted rounded text-[9px]">::nombre</kbd> • <kbd className="px-1 bg-muted rounded text-[9px]">↑↓</kbd> navegar • <kbd className="px-1 bg-muted rounded text-[9px]">Tab</kbd>/<kbd className="px-1 bg-muted rounded text-[9px]">Enter</kbd> seleccionar
+            </div>
+            {filteredStickers.map((s, index) => (
+              <button 
+                key={s.id}
+                data-index={index}
+                onClick={() => handleCommandSelect(s)} 
+                className={`flex items-center gap-2 w-full p-2 text-sm rounded text-left transition-colors ${
+                  index === commandSelectedIndex 
+                    ? 'bg-primary text-primary-foreground font-medium' 
+                    : 'hover:bg-muted'
+                }`}
+              >
+                {index === commandSelectedIndex && (
+                  <span className="text-xs">→</span>
                 )}
-                <span>{s.name}</span>
+                {(s as any).type === "video" ? (
+                  <video src={s.url} className="w-8 h-8 object-contain rounded" autoPlay loop muted playsInline />
+                ) : (
+                  <img src={s.url} className="w-8 h-8 object-contain rounded" alt={s.name} />
+                )}
+                <span className="truncate flex-1">{s.name}</span>
+                {index === commandSelectedIndex && (
+                  <span className="text-[10px] opacity-80">Enter ↵</span>
+                )}
               </button>
             ))}
           </div>
         )
       })()}
 
-      {/* Mentions Autocomplete Popover */}
+      {/* Mentions Autocomplete Popover (@usuario) */}
       {mentionQuery !== null && (() => {
         const query = mentionQuery.toLowerCase()
         const candidates = chat.participants.filter((p) =>
           p.username.toLowerCase().startsWith(query),
         )
         return candidates.length > 0 && (
-          <div className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[200px] max-h-[260px] overflow-y-auto">
-            {candidates.map((p) => (
+          <div ref={mentionListRef} className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[200px] max-h-[260px] overflow-y-auto">
+            <div className="px-2 py-1 text-[10px] text-muted-foreground border-b mb-1">
+              Escribe <kbd className="px-1 bg-muted rounded text-[9px]">@nombre</kbd> • <kbd className="px-1 bg-muted rounded text-[9px]">↑↓</kbd> navegar • <kbd className="px-1 bg-muted rounded text-[9px]">Tab</kbd>/<kbd className="px-1 bg-muted rounded text-[9px]">Enter</kbd> seleccionar
+            </div>
+            {candidates.map((p, index) => (
               <button
                 key={p.userId}
+                data-index={index}
                 type="button"
                 onClick={() => handleMentionSelect(p.username)}
-                className="flex items-center gap-2 w-full px-2 py-1.5 hover:bg-muted text-sm rounded text-left"
+                className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded text-left transition-colors ${
+                  index === mentionSelectedIndex 
+                    ? 'bg-primary text-primary-foreground font-medium' 
+                    : 'hover:bg-muted'
+                }`}
               >
+                {index === mentionSelectedIndex && (
+                  <span className="text-xs">→</span>
+                )}
                 <Avatar className="h-6 w-6">
                   {p.profilePhotoUrl ? (
                     <AvatarImage src={p.profilePhotoUrl} />
@@ -1075,7 +1163,10 @@ export function ChatView({
                     </AvatarFallback>
                   )}
                 </Avatar>
-                <span className="truncate">@{p.username}</span>
+                <span className="truncate flex-1">@{p.username}</span>
+                {index === mentionSelectedIndex && (
+                  <span className="text-[10px] opacity-80">Enter ↵</span>
+                )}
               </button>
             ))}
           </div>
@@ -1900,13 +1991,20 @@ function MessageBubble({
                     )}
                   </p>
 
-                  {/* Link Preview - solo para la primera URL encontrada */}
+                  {/* Media Embed (YouTube, Facebook, Spotify, TikTok) o Link Preview */}
                   {(() => {
                     const urls = extractUrls(message.content)
-                    if (urls.length > 0) {
-                      return <LinkPreview url={urls[0]} isOwn={isOwn} />
+                    if (urls.length === 0) return null
+                    
+                    const firstUrl = urls[0]
+                    
+                    // Si es un video/audio embebible, mostrar el embed
+                    if (isEmbeddableUrl(firstUrl)) {
+                      return <MediaEmbed url={firstUrl} />
                     }
-                    return null
+                    
+                    // Si no es embebible, mostrar link preview normal
+                    return <LinkPreview url={firstUrl} isOwn={isOwn} />
                   })()}
                 </>
               )}
