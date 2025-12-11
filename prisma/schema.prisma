@@ -1,0 +1,106 @@
+// Prisma Schema for Real-time Chat Application
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://neondb_owner:npg_HcAIP6lWnR4p@ep-steep-snow-ahap96k1-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require"
+}
+
+// Enum for chat types
+enum ChatType {
+  INDIVIDUAL
+  GROUP
+}
+
+// User model - stores user profiles
+model User {
+  id              String            @id @default(cuid())
+  username        String            @unique
+  profilePhotoUrl String?
+  createdAt       DateTime          @default(now())
+  
+  // Relations
+  chatsAsAdmin    Chat[]            @relation("ChatAdmin")
+  participations  ChatParticipant[]
+  messages        Message[]
+  customStickers  UserSticker[]
+  
+  @@map("users")
+}
+
+// UserSticker model - stores custom stickers uploaded by users
+model UserSticker {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  url       String
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_stickers")
+}
+
+// Chat model - stores chat rooms with user-generated IDs
+model Chat {
+  id        String   @id // User-generated ID like 'ABCD123'
+  type      ChatType @default(INDIVIDUAL)
+  name      String?  // Optional name for group chats
+  adminId   String
+  createdAt DateTime @default(now())
+  
+  // Relations
+  admin        User              @relation("ChatAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  participants ChatParticipant[]
+  messages     Message[]
+  
+  @@map("chats")
+}
+
+// ChatParticipant model - many-to-many relationship between users and chats
+model ChatParticipant {
+  id       String   @id @default(cuid())
+  userId   String
+  chatId   String
+  joinedAt DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, chatId])
+  @@map("chat_participants")
+}
+
+// Message model - stores chat messages
+model Message {
+  id       String    @id @default(cuid())
+  chatId   String
+  senderId String
+  content  String?   // Nullable for media-only messages
+  sentAt   DateTime  @default(now())
+  
+  // Relations
+  chat       Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender     User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  mediaFiles MediaFile[]
+  
+  @@map("messages")
+}
+
+// MediaFile model - stores Cloudinary file references
+model MediaFile {
+  id        String   @id @default(cuid())
+  messageId String
+  fileUrl   String   // Cloudinary URL
+  fileType  String   // e.g., 'image/jpeg', 'video/mp4', 'audio/mp3'
+  createdAt DateTime @default(now())
+  
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  
+  @@map("media_files")
+}
