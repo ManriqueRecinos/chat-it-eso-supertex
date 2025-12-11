@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo, useTransition } from "react"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -185,10 +185,27 @@ export function ChatView({
   const mentionListRef = useRef<HTMLDivElement>(null)
 
   const displayName = getChatDisplayName(chat, currentUser.id)
-  const otherParticipants = chat.participants.filter((p) => p.userId !== currentUser.id)
+  const otherParticipants = useMemo(() => 
+    chat.participants.filter((p) => p.userId !== currentUser.id),
+    [chat.participants, currentUser.id]
+  )
   const isAnyOnline = otherParticipants.some((p) => onlineUsers.has(p.userId))
   const typingUsernames = Array.from(typingUsers).filter((name) => name !== currentUser.username)
   const hasTyping = typingUsernames.length > 0
+
+  // Memoizar stickers filtrados para evitar recálculos en cada render
+  const filteredStickers = useMemo(() => {
+    if (commandQuery === null) return []
+    const allStickers = [...customStickers, ...STICKERS]
+    return allStickers.filter(s => s.name.toLowerCase().startsWith(commandQuery.toLowerCase()))
+  }, [commandQuery, customStickers])
+
+  // Memoizar candidatos de menciones
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return []
+    const query = mentionQuery.toLowerCase()
+    return chat.participants.filter((p) => p.username.toLowerCase().startsWith(query))
+  }, [mentionQuery, chat.participants])
 
   // Asegurar que al iniciar una respuesta el foco vaya siempre al input
   useEffect(() => {
@@ -472,40 +489,59 @@ export function ChatView({
     setStickerName("")
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value
-    setMessageInput(value)
-    onDraftChange?.(value)
+  // useTransition para diferir las actualizaciones de autocompletado (no bloquea el input)
+  const [, startTransition] = useTransition()
+  const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-    // Auto-resize textarea
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    const cursorPos = e.target.selectionStart || 0
+    
+    // Actualización inmediata del input (prioridad alta)
+    setMessageInput(value)
+
+    // Auto-resize textarea (síncrono pero rápido)
     const textarea = e.target
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`
 
-    // Detectar menciones (@username)
-    const cursorPos = e.target.selectionStart || 0
-    const textBeforeCursor = value.slice(0, cursorPos)
-    const mentionMatch = textBeforeCursor.match(/@(\w*)$/)
+    // Debounce para detecciones de autocompletado (reduce lag en móvil)
+    if (autocompleteTimeoutRef.current) {
+      clearTimeout(autocompleteTimeoutRef.current)
+    }
     
-    if (mentionMatch) {
-      setMentionQuery(mentionMatch[1])
-      setMentionSelectedIndex(0) // Resetear índice al cambiar query
-      setCommandQuery(null)
-    } else {
-      setMentionQuery(null)
-    }
+    autocompleteTimeoutRef.current = setTimeout(() => {
+      startTransition(() => {
+        const textBeforeCursor = value.slice(0, cursorPos)
+        
+        // Detectar menciones (@username)
+        const mentionMatch = textBeforeCursor.match(/@(\w*)$/)
+        if (mentionMatch) {
+          setMentionQuery(mentionMatch[1])
+          setMentionSelectedIndex(0)
+          setCommandQuery(null)
+        } else {
+          setMentionQuery(null)
+        }
 
-    // Detectar comandos de stickers (::nombre)
-    const commandMatch = textBeforeCursor.match(/::(\w*)$/)
-    if (commandMatch) {
-      setCommandQuery(commandMatch[1])
-      setCommandSelectedIndex(0) // Resetear índice al cambiar query
-      setMentionQuery(null)
-    } else if (!mentionMatch) {
-      setCommandQuery(null)
-    }
+        // Detectar comandos de stickers (::nombre)
+        const commandMatch = textBeforeCursor.match(/::(\w*)$/)
+        if (commandMatch) {
+          setCommandQuery(commandMatch[1])
+          setCommandSelectedIndex(0)
+          setMentionQuery(null)
+        } else if (!mentionMatch) {
+          setCommandQuery(null)
+        }
+      })
+    }, 50) // 50ms debounce - suficiente para no bloquear pero rápido para UX
 
-    // Typing indicator
+    // Guardar borrador (diferido)
+    startTransition(() => {
+      onDraftChange?.(value)
+    })
+
+    // Typing indicator (ya tiene su propio debounce)
     if (value.trim()) {
       onTyping(true)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
@@ -513,7 +549,7 @@ export function ChatView({
     } else {
       onTyping(false)
     }
-  }
+  }, [onDraftChange, onTyping])
 
   const handleEmojiClick = (emojiData: any) => {
     setMessageInput((prev) => prev + emojiData.emoji)
@@ -677,57 +713,41 @@ export function ChatView({
       setMentionQuery(null)
     }
     
-    // Navegación y selección para stickers (::)
-    if (commandQuery !== null) {
-      const allStickers = [...customStickers, ...STICKERS]
-      const filteredStickers = allStickers.filter(s => s.name.toLowerCase().startsWith(commandQuery.toLowerCase()))
-      
-      if (filteredStickers.length > 0) {
-        // Flechas para navegar
-        if (e.key === "ArrowDown") {
-          e.preventDefault()
-          setCommandSelectedIndex(prev => Math.min(prev + 1, filteredStickers.length - 1))
-          return
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault()
-          setCommandSelectedIndex(prev => Math.max(prev - 1, 0))
-          return
-        }
-        // Tab o Enter para seleccionar
-        if (e.key === "Tab" || e.key === "Enter") {
-          e.preventDefault()
-          handleCommandSelect(filteredStickers[commandSelectedIndex])
-          return
-        }
+    // Navegación y selección para stickers (::) - usa filteredStickers memoizado
+    if (commandQuery !== null && filteredStickers.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setCommandSelectedIndex(prev => Math.min(prev + 1, filteredStickers.length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setCommandSelectedIndex(prev => Math.max(prev - 1, 0))
+        return
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault()
+        handleCommandSelect(filteredStickers[commandSelectedIndex])
+        return
       }
     }
     
-    // Navegación y selección para menciones (@)
-    if (mentionQuery !== null) {
-      const query = mentionQuery.toLowerCase()
-      const candidates = chat.participants.filter((p) =>
-        p.username.toLowerCase().startsWith(query)
-      )
-      
-      if (candidates.length > 0) {
-        // Flechas para navegar
-        if (e.key === "ArrowDown") {
-          e.preventDefault()
-          setMentionSelectedIndex(prev => Math.min(prev + 1, candidates.length - 1))
-          return
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault()
-          setMentionSelectedIndex(prev => Math.max(prev - 1, 0))
-          return
-        }
-        // Tab o Enter para seleccionar
-        if (e.key === "Tab" || e.key === "Enter") {
-          e.preventDefault()
-          handleMentionSelect(candidates[mentionSelectedIndex].username)
-          return
-        }
+    // Navegación y selección para menciones (@) - usa mentionCandidates memoizado
+    if (mentionQuery !== null && mentionCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setMentionSelectedIndex(prev => Math.min(prev + 1, mentionCandidates.length - 1))
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setMentionSelectedIndex(prev => Math.max(prev - 1, 0))
+        return
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault()
+        handleMentionSelect(mentionCandidates[mentionSelectedIndex].username)
+        return
       }
     }
   }
@@ -1090,11 +1110,8 @@ export function ChatView({
         </div>
       )}
 
-      {/* Command Autocomplete Popover (::sticker) */}
-      {commandQuery !== null && (() => {
-        const allStickers = [...customStickers, ...STICKERS]
-        const filteredStickers = allStickers.filter(s => s.name.toLowerCase().startsWith(commandQuery.toLowerCase()))
-        return filteredStickers.length > 0 && (
+      {/* Command Autocomplete Popover (::sticker) - usa filteredStickers memoizado */}
+      {commandQuery !== null && filteredStickers.length > 0 && (
           <div ref={commandListRef} className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[200px] max-h-[300px] overflow-y-auto">
             <div className="px-2 py-1 text-[10px] text-muted-foreground border-b mb-1">
               Escribe <kbd className="px-1 bg-muted rounded text-[9px]">::nombre</kbd> • <kbd className="px-1 bg-muted rounded text-[9px]">↑↓</kbd> navegar • <kbd className="px-1 bg-muted rounded text-[9px]">Tab</kbd>/<kbd className="px-1 bg-muted rounded text-[9px]">Enter</kbd> seleccionar
@@ -1125,21 +1142,15 @@ export function ChatView({
               </button>
             ))}
           </div>
-        )
-      })()}
+      )}
 
-      {/* Mentions Autocomplete Popover (@usuario) */}
-      {mentionQuery !== null && (() => {
-        const query = mentionQuery.toLowerCase()
-        const candidates = chat.participants.filter((p) =>
-          p.username.toLowerCase().startsWith(query),
-        )
-        return candidates.length > 0 && (
+      {/* Mentions Autocomplete Popover (@usuario) - usa mentionCandidates memoizado */}
+      {mentionQuery !== null && mentionCandidates.length > 0 && (
           <div ref={mentionListRef} className="absolute bottom-20 left-4 z-50 bg-popover border shadow-md rounded-md p-1 min-w-[200px] max-h-[260px] overflow-y-auto">
             <div className="px-2 py-1 text-[10px] text-muted-foreground border-b mb-1">
               Escribe <kbd className="px-1 bg-muted rounded text-[9px]">@nombre</kbd> • <kbd className="px-1 bg-muted rounded text-[9px]">↑↓</kbd> navegar • <kbd className="px-1 bg-muted rounded text-[9px]">Tab</kbd>/<kbd className="px-1 bg-muted rounded text-[9px]">Enter</kbd> seleccionar
             </div>
-            {candidates.map((p, index) => (
+            {mentionCandidates.map((p, index) => (
               <button
                 key={p.userId}
                 data-index={index}
@@ -1170,8 +1181,7 @@ export function ChatView({
               </button>
             ))}
           </div>
-        )
-      })()}
+      )}
 
       {/* Typing indicator dentro del chat (solo otros usuarios) */}
       {hasTyping && (
