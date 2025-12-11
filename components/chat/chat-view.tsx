@@ -163,6 +163,7 @@ export function ChatView({
   const [stickerUploading, setStickerUploading] = useState(false)
 
   const [profilePreview, setProfilePreview] = useState<{ url: string; username: string } | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
 
   // New feature states
   const [showSearch, setShowSearch] = useState(false)
@@ -995,6 +996,7 @@ export function ChatView({
                     }
                   }}
                   socket={socket}
+                  onImageClick={setImagePreview}
                 />
               )
             ))}
@@ -1348,6 +1350,30 @@ export function ChatView({
         onClose={() => setShowMuteDialog(false)}
         onMuted={(muted) => setIsMuted(muted)}
       />
+
+      {/* Image Preview Dialog */}
+      <Dialog open={!!imagePreview} onOpenChange={() => setImagePreview(null)}>
+        <DialogContent className="max-w-[85vw] w-[85vw] max-h-[85vh] h-[85vh] p-0 overflow-hidden bg-black/95 border-none">
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-4 right-4 z-10 text-white hover:bg-white/20 bg-black/50"
+              onClick={() => setImagePreview(null)}
+            >
+              <X className="h-6 w-6" />
+            </Button>
+            {imagePreview && (
+              <img
+                src={imagePreview}
+                alt="Preview"
+                className="w-full h-full object-contain"
+                loading="eager"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1407,6 +1433,7 @@ function MessageBubble({
   onPinMessage,
   chatId,
   socket,
+  onImageClick,
 }: {
   message: MessageWithDetails
   isOwn: boolean
@@ -1424,6 +1451,7 @@ function MessageBubble({
   onPinMessage?: () => void
   chatId: string
   socket?: any
+  onImageClick?: (url: string) => void
 }) {
   const isSticker = message.mediaFiles?.some((m) => m.fileType === "image/sticker" || m.fileType === "video/sticker")
   const stickerMedia = message.mediaFiles?.find((m) => m.fileType === "image/sticker" || m.fileType === "video/sticker")
@@ -1702,7 +1730,7 @@ function MessageBubble({
               {message.mediaFiles && message.mediaFiles.length > 0 && (
                 <div className="mb-2 space-y-2">
                   {message.mediaFiles.map((media) => (
-                    <MediaPreview key={media.id} media={media} isOwn={isOwn} />
+                    <MediaPreview key={media.id} media={media} isOwn={isOwn} onImageClick={onImageClick} />
                   ))}
                 </div>
               )}
@@ -2412,7 +2440,7 @@ function InlinePoll({
   )
 }
 
-function MediaPreview({ media, isOwn = false }: { media: { fileUrl: string; fileType: string }; isOwn?: boolean }) {
+function MediaPreview({ media, isOwn = false, onImageClick }: { media: { fileUrl: string; fileType: string }; isOwn?: boolean; onImageClick?: (url: string) => void }) {
   const url = media.fileUrl || "/placeholder.svg"
   const type = media.fileType || ""
 
@@ -2448,8 +2476,9 @@ function MediaPreview({ media, isOwn = false }: { media: { fileUrl: string; file
       <img
         src={url}
         alt="Shared image"
-        className="max-h-64 rounded-lg object-contain bg-background/50"
+        className="max-h-64 rounded-lg object-contain bg-background/50 cursor-pointer hover:opacity-90 transition-opacity"
         loading="lazy"
+        onClick={() => onImageClick?.(url)}
       />
     )
   }

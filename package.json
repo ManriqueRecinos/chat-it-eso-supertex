@@ -6,7 +6,7 @@
     "build": "next build",
     "dev": "next dev -H 10.10.15.6 -p 3000",
     "lint": "eslint .",
-    "start": "next start -H 0.0.0.0 -p 3000"
+    "start": "next start -H 10.10.15.6 -p 3000"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
