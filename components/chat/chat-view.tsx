@@ -164,6 +164,10 @@ export function ChatView({
 
   const [profilePreview, setProfilePreview] = useState<{ url: string; username: string } | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageZoom, setImageZoom] = useState(1)
+  const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 })
+  const [isDraggingImage, setIsDraggingImage] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
   // New feature states
   const [showSearch, setShowSearch] = useState(false)
@@ -1352,24 +1356,119 @@ export function ChatView({
       />
 
       {/* Image Preview Dialog */}
-      <Dialog open={!!imagePreview} onOpenChange={() => setImagePreview(null)}>
-        <DialogContent className="max-w-[85vw] w-[85vw] max-h-[85vh] h-[85vh] p-0 overflow-hidden bg-black/95 border-none">
-          <div className="relative w-full h-full flex items-center justify-center p-4">
+      <Dialog open={!!imagePreview} onOpenChange={() => {
+        setImagePreview(null)
+        setImageZoom(1)
+        setImagePosition({ x: 0, y: 0 })
+      }}>
+        <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] p-0 overflow-hidden bg-black/95 border-none">
+          <div className="relative w-full h-full flex items-center justify-center">
             <Button
               variant="ghost"
               size="icon"
               className="absolute top-4 right-4 z-10 text-white hover:bg-white/20 bg-black/50"
-              onClick={() => setImagePreview(null)}
+              onClick={() => {
+                setImagePreview(null)
+                setImageZoom(1)
+                setImagePosition({ x: 0, y: 0 })
+              }}
             >
               <X className="h-6 w-6" />
             </Button>
+            
+            {/* Zoom controls */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex gap-2 bg-black/50 rounded-lg p-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/20"
+                onClick={() => setImageZoom(Math.max(0.5, imageZoom - 0.25))}
+              >
+                -
+              </Button>
+              <span className="text-white text-sm px-2 flex items-center">
+                {Math.round(imageZoom * 100)}%
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/20"
+                onClick={() => setImageZoom(Math.min(3, imageZoom + 0.25))}
+              >
+                +
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-white/20"
+                onClick={() => {
+                  setImageZoom(1)
+                  setImagePosition({ x: 0, y: 0 })
+                }}
+              >
+                Reset
+              </Button>
+            </div>
+
             {imagePreview && (
-              <img
-                src={imagePreview}
-                alt="Preview"
-                className="w-full h-full object-contain"
-                loading="eager"
-              />
+              <div
+                className="w-full h-full overflow-auto cursor-move"
+                onWheel={(e) => {
+                  e.preventDefault()
+                  const delta = e.deltaY * -0.001
+                  setImageZoom(Math.max(0.5, Math.min(3, imageZoom + delta)))
+                }}
+                onMouseDown={(e) => {
+                  if (imageZoom > 1) {
+                    setIsDraggingImage(true)
+                    setDragStart({ x: e.clientX - imagePosition.x, y: e.clientY - imagePosition.y })
+                  }
+                }}
+                onMouseMove={(e) => {
+                  if (isDraggingImage && imageZoom > 1) {
+                    setImagePosition({
+                      x: e.clientX - dragStart.x,
+                      y: e.clientY - dragStart.y
+                    })
+                  }
+                }}
+                onMouseUp={() => setIsDraggingImage(false)}
+                onMouseLeave={() => setIsDraggingImage(false)}
+                onTouchStart={(e) => {
+                  if (e.touches.length === 1 && imageZoom > 1) {
+                    setIsDraggingImage(true)
+                    setDragStart({
+                      x: e.touches[0].clientX - imagePosition.x,
+                      y: e.touches[0].clientY - imagePosition.y
+                    })
+                  }
+                }}
+                onTouchMove={(e) => {
+                  if (isDraggingImage && e.touches.length === 1 && imageZoom > 1) {
+                    setImagePosition({
+                      x: e.touches[0].clientX - dragStart.x,
+                      y: e.touches[0].clientY - dragStart.y
+                    })
+                  }
+                }}
+                onTouchEnd={() => setIsDraggingImage(false)}
+              >
+                <img
+                  src={imagePreview}
+                  alt="Preview"
+                  className="max-w-none"
+                  style={{
+                    transform: `scale(${imageZoom}) translate(${imagePosition.x / imageZoom}px, ${imagePosition.y / imageZoom}px)`,
+                    transformOrigin: 'center center',
+                    transition: isDraggingImage ? 'none' : 'transform 0.1s ease-out',
+                    width: '100%',
+                    height: 'auto',
+                    objectFit: 'contain'
+                  }}
+                  loading="eager"
+                  draggable={false}
+                />
+              </div>
             )}
           </div>
         </DialogContent>
