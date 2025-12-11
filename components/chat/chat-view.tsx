@@ -1361,8 +1361,9 @@ export function ChatView({
         setImageZoom(1)
         setImagePosition({ x: 0, y: 0 })
       }}>
-        <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] p-0 overflow-hidden bg-black/95 border-none">
-          <div className="relative w-full h-full flex items-center justify-center">
+        <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] p-0 overflow-hidden bg-black/95 border-none" showCloseButton={false}>
+          <DialogTitle className="sr-only">Vista previa de imagen</DialogTitle>
+          <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
             <Button
               variant="ghost"
               size="icon"
@@ -1412,7 +1413,7 @@ export function ChatView({
 
             {imagePreview && (
               <div
-                className="w-full h-full overflow-auto cursor-move"
+                className="absolute inset-0 flex items-center justify-center cursor-move"
                 onWheel={(e) => {
                   e.preventDefault()
                   const delta = e.deltaY * -0.001
@@ -1456,13 +1457,11 @@ export function ChatView({
                 <img
                   src={imagePreview}
                   alt="Preview"
-                  className="max-w-none"
+                  className="max-w-full max-h-full"
                   style={{
                     transform: `scale(${imageZoom}) translate(${imagePosition.x / imageZoom}px, ${imagePosition.y / imageZoom}px)`,
                     transformOrigin: 'center center',
                     transition: isDraggingImage ? 'none' : 'transform 0.1s ease-out',
-                    width: '100%',
-                    height: 'auto',
                     objectFit: 'contain'
                   }}
                   loading="eager"
